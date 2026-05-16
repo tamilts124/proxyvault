@@ -11,7 +11,6 @@ Commands:
   python viewer.py --history [--domain X] [--limit N] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
   python viewer.py --request <id>               # full request/response for a row
   python viewer.py --search <term>              # search URLs AND bodies
-  python viewer.py --search <term> --body       # force body search (implied by default)
   python viewer.py --export report.json         # dump everything to JSON
   python viewer.py --export report.har          # export as HAR (importable into DevTools/Burp)
   python viewer.py --export report.csv          # export history as CSV
@@ -37,6 +36,18 @@ RD = "\033[91m"; BD = "\033[1m";  DM = "\033[2m"; RS = "\033[0m"
 def c(col, t): return f"{col}{t}{RS}"
 
 # ──────────────────────────────────────────────────────────
+# Tips
+# ──────────────────────────────────────────────────────────
+
+def tips(*lines):
+    """Print a styled 'What next?' tip block."""
+    print(c(DM, "  ╭─ What next? " + "─"*44))
+    for line in lines:
+        print(c(DM, "  │ ") + line)
+    print(c(DM, "  ╰" + "─"*57))
+    print()
+
+# ──────────────────────────────────────────────────────────
 # DB helper
 # ──────────────────────────────────────────────────────────
 
@@ -53,7 +64,6 @@ def db() -> sqlite3.Connection:
 # ──────────────────────────────────────────────────────────
 
 def build_where(domain=None, since=None, until=None, extra_clauses=None):
-    """Return (where_sql, args_list) for common filters."""
     clauses = list(extra_clauses or [])
     args    = []
     if domain:
@@ -85,7 +95,12 @@ def cmd_list():
     """).fetchall()
 
     if not rows:
-        print(c(YL, "No data yet. Run the proxy and browse something.")); return
+        print(c(YL, "\n  No data yet. Start the proxy and browse something.\n"))
+        tips(
+            f"Start proxy   : {c(CY,'python proxy.py')}",
+            f"Then come back: {c(CY,'python viewer.py')}",
+        )
+        return
 
     print(c(BD, f"\n  {'Domain':<35} {'Reqs':>6} {'Size':>10} {'Cookies':>8}  Last seen"))
     print("  " + "─"*80)
@@ -94,6 +109,17 @@ def cmd_list():
         ts   = r['last_seen'][:19].replace("T"," ") if r['last_seen'] else "-"
         print(f"  {c(CY,r['domain']):<44} {r['requests']:>6} {size:>10} {r['cookies']:>8}  {ts}")
     print()
+
+    # Pick the busiest domain as a concrete example in tips
+    example = rows[0]['domain']
+    tips(
+        f"Drill into a domain : {c(CY,f'python viewer.py --domain {example}')}",
+        f"See all cookies     : {c(CY,'python viewer.py --cookies')}",
+        f"Full history        : {c(CY,'python viewer.py --history')}",
+        f"Search across all   : {c(CY,'python viewer.py --search <term>')}",
+        f"DB stats            : {c(CY,'python viewer.py --stats')}",
+        f"Web dashboard       : {c(CY,'python dashboard.py')}",
+    )
 
 
 def cmd_domain(domain: str, limit: int = 50):
@@ -118,7 +144,7 @@ def cmd_domain(domain: str, limit: int = 50):
             ts  = (ck['updated_at'] or '')[:19].replace("T"," ")
             print(f"  {ck['name']:<30} {val:<35} {sec}     {hto}       {ts}")
     else:
-        print(c(YL, "  No cookies."))
+        print(c(YL, "  No cookies for this domain."))
 
     rows = conn.execute("""
         SELECT id, timestamp, method, status_code, url,
@@ -135,8 +161,17 @@ def cmd_domain(domain: str, limit: int = 50):
         url = r['url'][:65] + ('…' if len(r['url'])>65 else '')
         stc = GR if r['status_code'] and r['status_code']<400 else RD
         print(f"  {r['id']:>6}  {ts}  {c(stc,str(r['status_code'])):>3}  {r['method']:<7} {url}")
+    print()
 
-    print(f"\n  Tip: python viewer.py --request <ID>  to see full request/response\n")
+    first_id = rows[0]['id'] if rows else '42'
+    tips(
+        f"Inspect a request   : {c(CY,f'python viewer.py --request {first_id}')}",
+        f"Show more rows      : {c(CY,f'python viewer.py --domain {domain} --limit 200')}",
+        f"Filter by date      : {c(CY,f'python viewer.py --domain {domain} --since 2025-05-01')}",
+        f"Search this domain  : {c(CY,f'python viewer.py --search <term> --domain {domain}')}",
+        f"Export domain HAR   : {c(CY,f'python viewer.py --export {domain}.har --domain {domain}')}",
+        f"Export domain CSV   : {c(CY,f'python viewer.py --export {domain}.csv --domain {domain}')}",
+    )
 
 
 def cmd_cookies(domain_filter=None):
@@ -150,9 +185,11 @@ def cmd_cookies(domain_filter=None):
 
     print(c(BD, f"\n🍪  All Cookies ({len(rows)})\n"))
     cur_domain = None
+    domains_seen = []
     for r in rows:
         if r['domain'] != cur_domain:
             cur_domain = r['domain']
+            domains_seen.append(cur_domain)
             print(c(CY, f"  {cur_domain}"))
         val = (r['value'] or '')[:60] + ('…' if len(r['value'] or '')>60 else '')
         flags = []
@@ -161,6 +198,21 @@ def cmd_cookies(domain_filter=None):
         tag = f"  [{', '.join(flags)}]" if flags else ""
         print(f"    {r['name']:<35} = {val}{tag}")
     print()
+
+    example = domains_seen[0] if domains_seen else "example.com"
+    if domain_filter:
+        tips(
+            f"See requests for this domain : {c(CY,f'python viewer.py --domain {domain_filter}')}",
+            f"Search for a cookie value    : {c(CY,f'python viewer.py --search <value> --domain {domain_filter}')}",
+            f"Export to JSON               : {c(CY,f'python viewer.py --export cookies.json --domain {domain_filter}')}",
+        )
+    else:
+        tips(
+            f"Filter to one domain  : {c(CY,f'python viewer.py --cookies --domain {example}')}",
+            f"Drill into a domain   : {c(CY,f'python viewer.py --domain {example}')}",
+            f"Search a cookie value : {c(CY,'python viewer.py --search <value>')}",
+            f"Export everything     : {c(CY,'python viewer.py --export report.json')}",
+        )
 
 
 def cmd_history(domain_filter=None, limit=100, since=None, until=None):
@@ -191,12 +243,34 @@ def cmd_history(domain_filter=None, limit=100, since=None, until=None):
         print(f"  {r['id']:>6}  {ts}  {c(CY,dom):<37} {c(stc,str(r['status_code'])):>3}  {r['method']:<7} {url}{bin_flag}")
     print()
 
+    first_id   = rows[0]['id']  if rows else '42'
+    first_dom  = rows[0]['domain'] if rows else 'example.com'
+    shown      = len(rows)
+
+    tip_lines = [f"Inspect a request : {c(CY,f'python viewer.py --request {first_id}')}"]
+
+    if not domain_filter:
+        tip_lines.append(f"Filter by domain  : {c(CY,f'python viewer.py --history --domain {first_dom}')}")
+    if not since:
+        tip_lines.append(f"Filter by date    : {c(CY,f'python viewer.py --history --since 2025-05-01 --until 2025-05-15')}")
+    if shown == limit:
+        tip_lines.append(f"Load more rows    : {c(CY,f'python viewer.py --history --limit {limit*2}')}")
+    tip_lines.append(f"Search bodies     : {c(CY,'python viewer.py --search <term>')}")
+    tip_lines.append(f"Export as HAR     : {c(CY,'python viewer.py --export report.har')}")
+
+    tips(*tip_lines)
+
 
 def cmd_request(row_id: int):
     conn = db()
     r = conn.execute("SELECT * FROM history WHERE id=?", (row_id,)).fetchone()
     if not r:
-        print(c(RD, f"No history row with id={row_id}")); return
+        print(c(RD, f"\n  No history row with id={row_id}\n"))
+        tips(
+            f"List all domains : {c(CY,'python viewer.py')}",
+            f"Browse history   : {c(CY,'python viewer.py --history')}",
+        )
+        return
 
     def pretty_json(s):
         try: return json.dumps(json.loads(s), indent=4)
@@ -236,8 +310,16 @@ def cmd_request(row_id: int):
         if len(r['res_body']) > 2000:
             print(c(YL,f"\n  … ({len(r['res_body']):,} chars total, showing first 2000)"))
     else:
-        print("  (not saved — enable --save-pages or check content type)")
+        print("  (not saved — run proxy with SAVE_PAGES=True)")
     print()
+
+    domain = r['domain']
+    tips(
+        f"All requests for this domain : {c(CY,f'python viewer.py --domain {domain}')}",
+        f"Search similar requests      : {c(CY,f'python viewer.py --search <term> --domain {domain}')}",
+        f"Export this domain to HAR    : {c(CY,f'python viewer.py --export {domain}.har --domain {domain}')}",
+        f"Back to history              : {c(CY,'python viewer.py --history')}",
+    )
 
 
 def cmd_search(term: str, domain_filter=None, since=None, until=None, limit=200):
@@ -245,14 +327,6 @@ def cmd_search(term: str, domain_filter=None, since=None, until=None, limit=200)
     conn = db()
     pat  = f"%{term}%"
 
-    extra = ["(url LIKE ? OR req_body LIKE ? OR res_body LIKE ?)"]
-    where, base_args = build_where(domain=domain_filter, since=since, until=until,
-                                   extra_clauses=extra)
-    # The LIKE pattern needs to appear 3× for the OR expression
-    args = [pat, pat, pat] + base_args
-
-    # SQLite evaluates WHERE left-to-right; rewrite so domain/time come first
-    # Actually rebuild properly:
     clauses = []
     args    = []
     if domain_filter:
@@ -280,21 +354,44 @@ def cmd_search(term: str, domain_filter=None, since=None, until=None, limit=200)
     label = f"  [{', '.join(filters)}]" if filters else ""
 
     print(c(BD, f"\n🔍  Search: '{term}'  ({len(rows)} results){label}\n"))
+
+    if not rows:
+        tips(
+            f"Try a broader term   : {c(CY,f'python viewer.py --search <other-term>')}",
+            f"Remove domain filter : {c(CY,f'python viewer.py --search {term}')}",
+            f"Browse all history   : {c(CY,'python viewer.py --history')}",
+        )
+        return
+
     for r in rows:
         ts  = r['timestamp'][:19].replace("T"," ")
         stc = GR if r['status_code'] and r['status_code']<400 else RD
         url = r['url'][:75] + ('…' if len(r['url'])>75 else '')
 
-        # Show which field matched
         tl = term.lower()
         matched = []
-        if tl in (r['url'] or '').lower():                matched.append("url")
-        if tl in (r['req_body'] or '').lower():           matched.append("req-body")
-        if tl in (r['res_body'] or '').lower():           matched.append("res-body")
+        if tl in (r['url'] or '').lower():      matched.append("url")
+        if tl in (r['req_body'] or '').lower(): matched.append("req-body")
+        if tl in (r['res_body'] or '').lower(): matched.append("res-body")
         match_tag = c(DM, f"  [{', '.join(matched)}]") if matched else ""
 
         print(f"  {r['id']:>6}  {ts}  {c(stc,str(r['status_code']))}  {r['method']:<7} {url}{match_tag}")
     print()
+
+    first_id  = rows[0]['id']
+    first_dom = rows[0]['domain']
+    shown     = len(rows)
+
+    tip_lines = [f"Inspect a result      : {c(CY,f'python viewer.py --request {first_id}')}"]
+    if not domain_filter:
+        tip_lines.append(f"Narrow to one domain  : {c(CY,f'python viewer.py --search {term} --domain {first_dom}')}")
+    if not since:
+        tip_lines.append(f"Narrow by date        : {c(CY,f'python viewer.py --search {term} --since 2025-05-01')}")
+    if shown == limit:
+        tip_lines.append(f"Raise result limit    : {c(CY,f'python viewer.py --search {term} --limit 500')}")
+    tip_lines.append(f"Export matches to CSV : {c(CY,f'python viewer.py --export matches.csv --domain {first_dom}')}")
+
+    tips(*tip_lines)
 
 
 def cmd_stats():
@@ -329,9 +426,19 @@ def cmd_stats():
         print(f"    {c(col,str(s['status_code'])):<20} {s['n']:>6}")
 
     print(c(YL, "\n  Top domains:"))
-    for t in top_dom:
+    top = list(top_dom)
+    for t in top:
         print(f"    {c(CY,t['domain']):<40} {t['n']:>6} reqs")
     print()
+
+    example = top[0]['domain'] if top else "example.com"
+    tips(
+        f"Drill into top domain : {c(CY,f'python viewer.py --domain {example}')}",
+        f"Browse full history   : {c(CY,'python viewer.py --history')}",
+        f"Search across all     : {c(CY,'python viewer.py --search <term>')}",
+        f"Export everything     : {c(CY,'python viewer.py --export report.json')}",
+        f"Open web dashboard    : {c(CY,'python dashboard.py')}",
+    )
 
 
 # ──────────────────────────────────────────────────────────
@@ -356,6 +463,11 @@ def cmd_export_json(path: str, domain_filter=None, since=None, until=None):
 
     Path(path).write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print(c(GR, f"\n✅  JSON export: {len(report['history'])} rows + {len(report['cookies'])} cookies → {path}\n"))
+    tips(
+        f"Also export as HAR : {c(CY, path.replace('.json','.har') + ' (--export)')}",
+        f"Also export as CSV : {c(CY, path.replace('.json','.csv') + ' (--export)')}",
+        f"Open dashboard     : {c(CY,'python dashboard.py')}",
+    )
 
 
 # ──────────────────────────────────────────────────────────
@@ -382,8 +494,13 @@ def cmd_export_csv(path: str, domain_filter=None, since=None, until=None):
     for r in rows:
         writer.writerow({k: r[k] for k in COLS if k in r.keys()})
 
-    Path(path).write_text(buf.getvalue(), encoding="utf-8-sig")   # utf-8-sig → Excel opens correctly
+    Path(path).write_text(buf.getvalue(), encoding="utf-8-sig")
     print(c(GR, f"\n✅  CSV export: {len(rows)} rows → {path}\n"))
+    tips(
+        f"Open in Excel / Google Sheets directly",
+        f"Also export as HAR : {c(CY,'python viewer.py --export report.har')}",
+        f"Also export as JSON: {c(CY,'python viewer.py --export report.json')}",
+    )
 
 
 # ──────────────────────────────────────────────────────────
@@ -391,7 +508,6 @@ def cmd_export_csv(path: str, domain_filter=None, since=None, until=None):
 # ──────────────────────────────────────────────────────────
 
 def _iso_z(ts: str) -> str:
-    """Convert stored ISO timestamp to UTC Z-suffix format required by HAR."""
     try:
         dt = datetime.fromisoformat(ts)
         return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -399,7 +515,6 @@ def _iso_z(ts: str) -> str:
         return ts
 
 def _har_headers(json_str: str) -> list:
-    """Convert stored JSON headers object → HAR headers array."""
     try:
         obj = json.loads(json_str) if json_str else {}
     except Exception:
@@ -407,14 +522,12 @@ def _har_headers(json_str: str) -> list:
     out = []
     for k, v in obj.items():
         if isinstance(v, list):
-            for vi in v:
-                out.append({"name": k, "value": str(vi)})
+            for vi in v: out.append({"name": k, "value": str(vi)})
         else:
             out.append({"name": k, "value": str(v)})
     return out
 
 def _har_cookies(json_str: str) -> list:
-    """Convert stored JSON cookies object → HAR cookies array."""
     try:
         obj = json.loads(json_str) if json_str else {}
     except Exception:
@@ -434,25 +547,21 @@ def cmd_export_har(path: str, domain_filter=None, since=None, until=None):
         req_body = r["req_body"] or ""
         req_ct   = ""
         try:
-            hdrs = json.loads(r["req_headers"] or "{}")
+            hdrs   = json.loads(r["req_headers"] or "{}")
             req_ct = hdrs.get("content-type", "")
         except Exception:
             pass
 
         post_data = None
         if req_body:
-            post_data = {
-                "mimeType": req_ct,
-                "text":     req_body,
-                "params":   [],
-            }
+            post_data = {"mimeType": req_ct, "text": req_body, "params": []}
 
         res_body = r["res_body"] or ""
         res_ct   = r["content_type"] or "application/octet-stream"
 
         entry = {
             "startedDateTime": _iso_z(r["timestamp"]),
-            "time":            -1,   # total ms; unknown
+            "time": -1,
             "request": {
                 "method":      r["method"],
                 "url":         r["url"],
@@ -489,14 +598,19 @@ def cmd_export_har(path: str, domain_filter=None, since=None, until=None):
     har = {
         "log": {
             "version": "1.2",
-            "creator": {"name": "network-proxy", "version": "1.0"},
+            "creator": {"name": "proxyvault", "version": "1.0"},
             "entries": entries,
         }
     }
 
     Path(path).write_text(json.dumps(har, ensure_ascii=False), encoding="utf-8")
-    print(c(GR, f"\n✅  HAR export: {len(entries)} entries → {path}"))
-    print(c(DM,  "    Import in Chrome DevTools → Network → ⬆ Import HAR\n"))
+    print(c(GR, f"\n✅  HAR export: {len(entries)} entries → {path}\n"))
+    tips(
+        f"Chrome DevTools : Network tab → ⬆ Import HAR",
+        f"Burp Suite      : Proxy → HTTP history → Import",
+        f"Insomnia        : File → Import → {path}",
+        f"Also as CSV     : {c(CY,'python viewer.py --export report.csv')}",
+    )
 
 
 # ──────────────────────────────────────────────────────────
@@ -518,17 +632,17 @@ Examples:
   python viewer.py --export out.csv --since 2025-05-10
 """)
 
-    parser.add_argument("--db",       default=str(DB_PATH), help="Path to proxy.db")
-    parser.add_argument("--domain",   "-d", help="Filter by domain")
-    parser.add_argument("--cookies",  "-c", action="store_true", help="Dump all cookies")
-    parser.add_argument("--history",  action="store_true",        help="Show browsing history")
-    parser.add_argument("--request",  "-r", type=int, metavar="ID", help="Full request/response for a row")
-    parser.add_argument("--search",   "-s", metavar="TERM", help="Search URLs + request/response bodies")
-    parser.add_argument("--export",   "-e", metavar="FILE",  help="Export to .json / .har / .csv")
-    parser.add_argument("--stats",    action="store_true",   help="Database statistics")
-    parser.add_argument("--limit",    type=int, default=100, help="Max rows for history/domain (default 100)")
-    parser.add_argument("--since",    metavar="YYYY-MM-DD",  help="Filter: from date (inclusive)")
-    parser.add_argument("--until",    metavar="YYYY-MM-DD",  help="Filter: to date (inclusive)")
+    parser.add_argument("--db",      default=str(DB_PATH), help="Path to proxy.db")
+    parser.add_argument("--domain",  "-d", help="Filter by domain")
+    parser.add_argument("--cookies", "-c", action="store_true", help="Dump all cookies")
+    parser.add_argument("--history", action="store_true",       help="Show browsing history")
+    parser.add_argument("--request", "-r", type=int, metavar="ID", help="Full request/response for a row")
+    parser.add_argument("--search",  "-s", metavar="TERM", help="Search URLs + request/response bodies")
+    parser.add_argument("--export",  "-e", metavar="FILE", help="Export to .json / .har / .csv")
+    parser.add_argument("--stats",   action="store_true",  help="Database statistics")
+    parser.add_argument("--limit",   type=int, default=100, help="Max rows (default 100)")
+    parser.add_argument("--since",   metavar="YYYY-MM-DD", help="Filter from date (inclusive)")
+    parser.add_argument("--until",   metavar="YYYY-MM-DD", help="Filter to date (inclusive)")
     args = parser.parse_args()
 
     DB_PATH = Path(args.db)
