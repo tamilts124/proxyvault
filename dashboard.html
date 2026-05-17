@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Proxy Dashboard</title>
+<style>
+  :root{
+    --bg:#0f1117; --bg2:#181c27; --bg3:#1e2436; --bg4:#252d42;
+    --border:#2e3a55; --accent:#4f8ef7; --accent2:#7b5ef7;
+    --green:#3ecf8e; --red:#f75f5f; --yellow:#f7c45f; --dim:#5a6a8a;
+    --text:#e0e6f0; --text2:#9aaabe;
+    --font:'Segoe UI',system-ui,sans-serif; --mono:'Cascadia Code','Fira Code',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;min-height:100vh;display:flex;flex-direction:column}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* ── layout ── */
+  #shell{display:flex;flex:1;overflow:hidden;height:100vh}
+  #sidebar{width:230px;min-width:230px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+  #main{flex:1;overflow-y:auto;padding:24px}
+
+  /* ── sidebar ── */
+  .logo{padding:18px 16px 12px;font-size:15px;font-weight:700;color:var(--accent);border-bottom:1px solid var(--border);letter-spacing:.03em}
+  .logo span{color:var(--text2);font-weight:400;font-size:12px;display:block;margin-top:2px}
+  nav a{display:flex;align-items:center;gap:9px;padding:10px 16px;color:var(--text2);border-left:3px solid transparent;transition:all .15s}
+  nav a:hover{color:var(--text);background:var(--bg3);text-decoration:none}
+  nav a.active{color:var(--accent);background:var(--bg3);border-left-color:var(--accent)}
+  nav .icon{font-size:16px;width:20px;text-align:center}
+  .sidebar-section{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);padding:14px 16px 4px;border-top:1px solid var(--border);margin-top:4px}
+  #domain-list{overflow-y:auto;flex:1}
+  #domain-list a{font-size:12px;padding:7px 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+
+  /* ── cards / grid ── */
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px}
+  .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .stat-card .label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+  .stat-card .value{font-size:26px;font-weight:700;color:var(--accent)}
+  .stat-card .sub{font-size:11px;color:var(--text2);margin-top:3px}
+
+  /* ── panels ── */
+  .panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:20px;overflow:hidden}
+  .panel-head{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .panel-head h2{font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em}
+  .panel-body{padding:0}
+
+  /* ── toolbar ── */
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg3)}
+  input,select{background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:13px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  input[type=text]{min-width:200px}
+  button{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px;font-weight:600;transition:opacity .15s}
+  button:hover{opacity:.85}
+  button.secondary{background:var(--bg4);color:var(--text);border:1px solid var(--border)}
+  button.secondary:hover{background:var(--bg3)}
+  button.danger{background:#7a1a1a;color:var(--red);border:1px solid #a33}
+  button.danger:hover{background:#a31f1f;color:#fff}
+  /* #3 — copy button, icon-only, no background noise */
+  button.copy-url{background:none;border:none;color:var(--dim);font-size:13px;padding:2px 5px;cursor:pointer;border-radius:4px;transition:color .15s}
+  button.copy-url:hover{color:var(--accent);background:var(--bg4)}
+  /* #4 — replay button in drawer */
+  button.replay-btn{background:#1a3060;color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:5px 13px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s}
+  button.replay-btn:hover{background:#24407a}
+  button.replay-btn:disabled{opacity:.5;cursor:default}
+
+  /* ── table ── */
+  .tbl{width:100%;border-collapse:collapse}
+  .tbl th{padding:9px 12px;text-align:left;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--bg3)}
+  .tbl td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:top;max-width:0}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr:hover td{background:var(--bg3);cursor:pointer}
+  .tbl .url{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;font-size:12px;font-family:var(--mono)}
+  /* #3 — url cell needs room for the copy button */
+  .tbl .url-cell{display:flex;align-items:center;gap:4px;max-width:400px}
+  .tbl .domain{color:var(--accent);font-size:12px}
+  .tbl .ts{color:var(--dim);font-size:11px;white-space:nowrap}
+  .tbl .method{font-size:11px;font-weight:700;font-family:var(--mono)}
+  .badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;font-family:var(--mono)}
+  .ok {background:#1a3a2a;color:var(--green)}
+  .err{background:#3a1a1a;color:var(--red)}
+  .rdr{background:#3a301a;color:var(--yellow)}
+  .bin{color:var(--dim);font-size:10px}
+  .pager{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--text2)}
+
+  /* ── detail drawer ── */
+  #drawer{position:fixed;top:0;right:0;width:660px;height:100vh;background:var(--bg2);border-left:1px solid var(--border);transform:translateX(100%);transition:transform .2s;z-index:100;display:flex;flex-direction:column;overflow:hidden}
+  #drawer.open{transform:translateX(0)}
+  #drawer-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
+  #drawer-head h2{font-size:13px;font-weight:600;color:var(--text2);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #drawer-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+  #drawer-close{background:none;border:none;color:var(--dim);font-size:22px;cursor:pointer;padding:0 4px;line-height:1}
+  #drawer-close:hover{color:var(--text)}
+  #drawer-body{flex:1;overflow-y:auto;padding:16px}
+  .kv-block{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px;font-family:var(--mono);white-space:pre-wrap;word-break:break-all;max-height:250px;overflow-y:auto}
+  .section-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:14px 0 5px}
+  .meta-row{display:flex;gap:8px;align-items:baseline;margin-bottom:5px;font-size:12px}
+  .meta-row .k{color:var(--dim);min-width:90px}
+  .meta-row .v{color:var(--text);font-family:var(--mono)}
+
+  /* ── #4/#5 replay result panel ── */
+  #replay-result{margin-top:12px;display:none}
+  #replay-result.visible{display:block}
+  .replay-meta{display:flex;gap:16px;flex-wrap:wrap;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;font-size:12px}
+  .replay-meta .rk{color:var(--dim)}
+  .replay-meta .rv{color:var(--text);font-family:var(--mono)}
+  .diff-block{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;font-family:var(--mono);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;line-height:1.55}
+  .diff-ins{background:#1a3a1a;color:var(--green)}
+  .diff-del{background:#3a1a1a;color:var(--red);text-decoration:line-through}
+  .diff-eq{color:var(--text2)}
+  .redirect-chain{font-size:11px;color:var(--yellow);font-family:var(--mono);margin-bottom:8px}
+
+  /* ── charts ── */
+  .chart-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+  canvas{display:block;width:100%;max-height:180px}
+  #chart-timeline{max-height:140px}
+
+  /* ── cookies table ── */
+  .ck-domain{color:var(--accent);font-weight:600;padding:6px 12px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:12px}
+
+  /* ── empty ── */
+  .empty{padding:40px;text-align:center;color:var(--dim);font-size:13px}
+
+  /* ── ws status pill ── */
+  #ws-badge{font-size:11px;padding:2px 9px;border-radius:12px;font-weight:600;transition:background .3s,color .3s}
+  #ws-badge.connected{background:#1a3a2a;color:var(--green)}
+  #ws-badge.disconnected{background:#3a1a1a;color:var(--red)}
+  #ws-badge.connecting{background:#3a301a;color:var(--yellow)}
+
+  /* ── live flash on new rows ── */
+  @keyframes rowflash{from{background:rgba(79,142,247,.18)}to{background:transparent}}
+  .row-new{animation:rowflash 1.4s ease-out}
+
+  /* ── refresh indicator ── */
+  #refresh-badge{font-size:11px;color:var(--dim);padding:0 8px}
+
+  /* ── toast for copy feedback ── */
+  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg4);border:1px solid var(--border);color:var(--text);padding:8px 18px;border-radius:8px;font-size:13px;pointer-events:none;opacity:0;transition:opacity .2s;z-index:200}
+  #toast.show{opacity:1}
+
+  /* ── scrollbar ── */
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:var(--bg2)}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+  #page-overview, #page-history, #page-cookies, #page-websockets { display:none }
+  #page-overview.active, #page-history.active, #page-cookies.active, #page-websockets.active { display:block }
+
+  /* ── ws logs ── */
+  .ws-dir-client{color:var(--accent)}
+  .ws-dir-server{color:var(--green)}
+  .ws-payload{font-family:var(--mono);font-size:11px;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-width:500px;
+    overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+
+  /* ── column resize ── */
+  .tbl{table-layout:fixed}
+  .tbl th{position:relative;overflow:hidden}
+  .col-resizer{
+    position:absolute;right:0;top:0;bottom:0;width:4px;
+    cursor:col-resize;user-select:none;z-index:2;
+    background:transparent;
+    transition:background .12s;
+  }
+  .col-resizer:hover{background:var(--accent);opacity:.7}
+  .col-resizing{cursor:col-resize !important}
+  .col-resizing *{user-select:none !important;pointer-events:none !important}
+
+  /* ── section-label row with copy button ── */
+  .section-row{display:flex;align-items:center;justify-content:space-between;margin:14px 0 5px}
+  .section-row .section-label{margin:0}
+  .btn-copy-section{background:none;border:none;color:var(--dim);font-size:11px;padding:1px 5px;cursor:pointer;border-radius:4px;transition:color .15s;font-weight:400}
+  .btn-copy-section:hover{color:var(--accent);background:var(--bg4)}
+
+  /* ── export dropdown ── */
+  .export-wrap{position:relative;display:inline-block}
+  .export-menu{display:none;position:absolute;right:0;top:110%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;min-width:140px;z-index:50;box-shadow:0 4px 16px #0006;overflow:hidden}
+  .export-menu.open{display:block}
+  .export-menu a{display:block;padding:8px 14px;color:var(--text);font-size:13px;cursor:pointer;white-space:nowrap}
+  .export-menu a:hover{background:var(--bg4);color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<div id="shell">
+
+  <!-- sidebar -->
+  <div id="sidebar">
+    <div class="logo">🌐 Proxy Dashboard<span id="db-path">Loading…</span></div>
+    <nav>
+      <a href="#" class="active" onclick="showPage('overview',this)" id="nav-overview">
+        <span class="icon">📊</span> Overview
+      </a>
+      <a href="#" onclick="showPage('history',this)" id="nav-history">
+        <span class="icon">📜</span> History
+      </a>
+      <a href="#" onclick="showPage('cookies',this)" id="nav-cookies">
+        <span class="icon">🍪</span> Cookies
+      </a>
+      <a href="#" onclick="showPage('websockets',this)" id="nav-websockets">
+        <span class="icon">🔌</span> WebSockets
+      </a>
+    </nav>
+    <div class="sidebar-section">Domains</div>
+    <div id="domain-list"><div class="empty" style="padding:12px 16px;font-size:12px">Loading…</div></div>
+  </div>
+
+  <!-- main -->
+  <div id="main">
+
+    <!-- OVERVIEW -->
+    <div id="page-overview" class="active">
+      <div class="stat-grid" id="stat-grid"></div>
+
+      <!-- Timeline -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-head">
+          <h2>Requests Over Time</h2>
+          <span id="ws-badge" class="connecting">⬤ connecting…</span>
+        </div>
+        <div class="panel-body" style="padding:16px"><canvas id="chart-timeline"></canvas></div>
+      </div>
+
+      <div class="chart-row">
+        <div class="panel">
+          <div class="panel-head"><h2>Requests by Method</h2></div>
+          <div class="panel-body" style="padding:16px"><canvas id="chart-methods"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Status Codes</h2></div>
+          <div class="panel-body" style="padding:16px"><canvas id="chart-status"></canvas></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Top Domains</h2>
+          <button class="danger" onclick="prunePrompt()">🗑 Prune DB</button>
+        </div>
+        <div class="panel-body"><table class="tbl" id="domains-table"></table></div>
+      </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div id="page-history">
+      <div class="panel">
+        <div class="toolbar">
+          <input type="text" id="h-search" placeholder="Search URL / body…" oninput="debounce(loadHistory,400)()" maxlength="200">
+          <select id="h-method" onchange="loadHistory()">
+            <option value="">All methods</option>
+            <option>GET</option><option>POST</option><option>PUT</option>
+            <option>DELETE</option><option>OPTIONS</option><option>HEAD</option>
+          </select>
+          <select id="h-status" onchange="loadHistory()">
+            <option value="">All statuses</option>
+            <option>200</option><option>201</option><option>204</option>
+            <option>301</option><option>302</option><option>304</option>
+            <option>400</option><option>401</option><option>403</option>
+            <option>404</option><option>500</option>
+          </select>
+          <input type="date" id="h-since" onchange="loadHistory()" title="Since">
+          <input type="date" id="h-until" onchange="loadHistory()" title="Until">
+          <button class="secondary" onclick="clearHistoryFilters()">Clear</button>
+          <div class="export-wrap">
+            <button class="secondary" onclick="toggleExportMenu('hist-export-menu')">⬇ Export ▾</button>
+            <div class="export-menu" id="hist-export-menu">
+              <a onclick="exportHistory('csv')">📄 CSV</a>
+              <a onclick="exportHistory('json')">📦 JSON</a>
+              <a onclick="exportHistory('har')">🌐 HAR</a>
+            </div>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>ID</th><th>Time</th><th>Method</th><th>Status</th>
+              <th>Domain</th><th>URL</th><th>Size</th>
+            </tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+        <div class="pager">
+          <button class="secondary" id="btn-prev" onclick="histPage(-1)">← Prev</button>
+          <span id="pager-info"></span>
+          <button class="secondary" id="btn-next" onclick="histPage(1)">Next →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- COOKIES -->
+    <div id="page-cookies">
+      <div class="panel">
+        <div class="toolbar">
+          <input type="text" id="ck-search" placeholder="Filter by name or value…" oninput="filterCookies()">
+          <span id="ck-count" style="color:var(--dim);font-size:12px"></span>
+        </div>
+        <div id="cookies-body"></div>
+      </div>
+    </div>
+
+    <!-- WEBSOCKETS -->
+    <div id="page-websockets">
+
+      <!-- domain summary -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-head"><h2>WebSocket Connections by Domain</h2></div>
+        <div class="panel-body">
+          <table class="tbl" id="ws-domains-table">
+            <thead>
+              <tr>
+                <th>Domain</th><th>Connections</th><th>Frames</th>
+                <th>Client</th><th>Server</th><th>Traffic</th><th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody id="ws-domains-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- frame log -->
+      <div class="panel">
+        <div class="toolbar">
+          <input type="text" id="ws-domain-filter" placeholder="Filter by domain…" oninput="debounce(loadWsMessages,400)()" style="min-width:180px">
+          <select id="ws-direction" onchange="loadWsMessages()">
+            <option value="">All directions</option>
+            <option value="client">⬆ Client → Server</option>
+            <option value="server">⬇ Server → Client</option>
+          </select>
+          <select id="ws-opcode" onchange="loadWsMessages()">
+            <option value="">All opcodes</option>
+            <option value="1">1 — text</option>
+            <option value="2">2 — binary</option>
+            <option value="8">8 — close</option>
+          </select>
+          <input type="date" id="ws-since" onchange="loadWsMessages()" title="Since">
+          <input type="date" id="ws-until" onchange="loadWsMessages()" title="Until">
+          <button class="secondary" onclick="clearWsFilters()">Clear</button>
+          <div class="export-wrap">
+            <button class="secondary" onclick="toggleExportMenu('ws-export-menu')">⬇ Export ▾</button>
+            <div class="export-menu" id="ws-export-menu">
+              <a onclick="exportWs('csv')">📄 CSV</a>
+              <a onclick="exportWs('json')">📦 JSON</a>
+            </div>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>ID</th><th>Time</th><th>Domain</th><th>Dir</th>
+              <th>Opcode</th><th>Size</th><th>Payload</th>
+            </tr>
+          </thead>
+          <tbody id="ws-messages-body"></tbody>
+        </table>
+        <div class="pager">
+          <button class="secondary" id="ws-btn-prev" onclick="wsPage(-1)">← Prev</button>
+          <span id="ws-pager-info"></span>
+          <button class="secondary" id="ws-btn-next" onclick="wsPage(1)">Next →</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /shell -->
+
+<!-- Detail Drawer -->
+<div id="drawer">
+  <div id="drawer-head">
+    <h2 id="drawer-title">Request Detail</h2>
+    <div id="drawer-actions">
+      <!-- #3 — Copy URL button -->
+      <button class="copy-url" id="btn-copy-url" title="Copy URL" onclick="copyDrawerUrl()">📋 URL</button>
+      <!-- #4 — Replay button -->
+      <button class="replay-btn" id="btn-replay" onclick="replayRequest()">↩ Replay</button>
+      <button id="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+  </div>
+  <div id="drawer-body"></div>
+</div>
+
+<!-- Toast (#3) -->
+<div id="toast">Copied!</div>
+
+<script>
+// ── State ────────────────────────────────────────────────
+let histOffset = 0;
+const PAGE_SIZE = 50;
+let histTotal   = 0;
+let activeDomain = null;
+let allCookies   = [];
+let currentPage  = 'overview';
+let _drawerUrl   = '';   // #3 — holds URL of currently-open drawer row
+let _drawerId    = null; // #4 — holds id of currently-open drawer row
+
+// ── Utilities ────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function debounce(fn, ms) {
+  let t;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+function statusBadge(s) {
+  if (!s) return `<span class="badge err">???</span>`;
+  const cls = s < 300 ? 'ok' : s < 400 ? 'rdr' : 'err';
+  return `<span class="badge ${cls}">${s}</span>`;
+}
+
+function fmtSize(b) {
+  if (!b) return '—';
+  return b > 1048576 ? (b/1048576).toFixed(1)+' MB'
+       : b > 1024    ? (b/1024).toFixed(1)+' KB'
+       : b+' B';
+}
+
+function fmtTs(ts) {
+  return ts ? ts.replace('T',' ').slice(0,19) : '—';
+}
+
+// All state-mutating POSTs include X-Requested-With: XHR for CSRF protection (#10)
+async function api(path, method='GET') {
+  const opts = { method };
+  if (method === 'POST') {
+    opts.headers = { 'X-Requested-With': 'XHR' };
+  }
+  const r = await fetch('/api' + path, opts);
+  return r.json();
+}
+
+// #3 — show a brief toast message
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ── Pages ────────────────────────────────────────────────
+function showPage(name, el) {
+  document.querySelectorAll('#page-overview,#page-history,#page-cookies')
+    .forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  $('page-' + name).classList.add('active');
+  if (el) el.classList.add('active');
+  currentPage = name;
+  if (name === 'history')    { histOffset = 0; loadHistory(); }
+  if (name === 'cookies')    loadCookies();
+  if (name === 'websockets') { wsOffset = 0; loadWsDomains(); loadWsMessages(); }
+}
+
+// ── Overview ─────────────────────────────────────────────
+async function loadOverview() {
+  const d = await api('/overview');
+  if (d.error) return;
+
+  // stat cards
+  const sg = $('stat-grid');
+  const kb = v => v ? (v/1024).toFixed(1)+' KB' : '0 B';
+  sg.innerHTML = `
+    <div class="stat-card"><div class="label">Total Requests</div><div class="value">${(d.stats?.reqs||0).toLocaleString()}</div></div>
+    <div class="stat-card"><div class="label">Traffic Captured</div><div class="value">${kb(d.stats?.bytes)}</div></div>
+    <div class="stat-card"><div class="label">Domains</div><div class="value">${d.domains.length}</div></div>
+    <div class="stat-card"><div class="label">Cookies</div><div class="value">${d.cookies_total}</div></div>
+    <div class="stat-card"><div class="label">DB Size</div><div class="value">${kb(d.db_size)}</div></div>
+  `;
+
+  // domain list in sidebar
+  const dl = $('domain-list');
+  dl.innerHTML = d.domains.map(dom =>
+    `<a href="#" onclick="filterByDomain('${dom.domain}',this)">${dom.domain}</a>`
+  ).join('');
+
+  // top domains table
+  $('domains-table').innerHTML = `
+    <thead><tr><th>Domain</th><th>Requests</th><th>Traffic</th><th>Cookies</th><th>Last seen</th></tr></thead>
+    <tbody>${d.domains.slice(0,20).map(dom => `
+      <tr onclick="filterByDomain('${dom.domain}')">
+        <td class="domain">${dom.domain}</td>
+        <td>${(dom.requests||0).toLocaleString()}</td>
+        <td>${fmtSize(dom.total_bytes)}</td>
+        <td>${dom.cookies}</td>
+        <td class="ts">${fmtTs(dom.last_seen)}</td>
+      </tr>`).join('')}
+    </tbody>`;
+
+  drawBarChart('chart-methods', d.methods.map(m=>m.method), d.methods.map(m=>m.n),
+    ['#4f8ef7','#7b5ef7','#3ecf8e','#f7c45f','#f75f5f','#5ff7d8']);
+  drawBarChart('chart-status',  d.statuses.map(s=>String(s.status_code)), d.statuses.map(s=>s.n),
+    d.statuses.map(s => s.status_code < 300 ? '#3ecf8e' : s.status_code < 400 ? '#f7c45f' : '#f75f5f'));
+
+  if (d.timeline && d.timeline.length) {
+    drawLineChart('chart-timeline', d.timeline.map(t=>t.bucket), d.timeline.map(t=>t.n));
+  }
+}
+
+// ── Simple canvas bar chart (no dependency) ──────────────
+function drawBarChart(canvasId, labels, values, colors) {
+  const canvas = $(canvasId);
+  if (!canvas || !values.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth || 400, H = 160;
+  canvas.width  = W * dpr; canvas.height = H * dpr;
+  canvas.style.width  = W + 'px'; canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const pad = {t:10,r:10,b:30,l:40};
+  const max = Math.max(...values) || 1;
+  const bw  = (W - pad.l - pad.r) / labels.length;
+  const gap = bw * 0.15;
+
+  ctx.clearRect(0,0,W,H);
+
+  ctx.strokeStyle = '#2e3a55'; ctx.lineWidth = 1;
+  for (let i=0;i<=4;i++) {
+    const y = pad.t + (H - pad.t - pad.b) * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillStyle='#5a6a8a'; ctx.font='10px sans-serif'; ctx.textAlign='right';
+    ctx.fillText(Math.round(max*(4-i)/4), pad.l-4, y+3);
+  }
+
+  values.forEach((v, i) => {
+    const col  = Array.isArray(colors) ? (colors[i] || colors[0]) : colors;
+    const barH = (v / max) * (H - pad.t - pad.b);
+    const x    = pad.l + i * bw + gap;
+    const y    = H - pad.b - barH;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y, bw-gap*2, barH, [3,3,0,0])
+                  : ctx.rect(x, y, bw-gap*2, barH);
+    ctx.fill();
+    ctx.fillStyle = '#9aaabe'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(labels[i], pad.l + i*bw + bw/2, H - pad.b + 12);
+  });
+}
+
+// ── Simple canvas line chart ─────────────────────────────
+function drawLineChart(canvasId, labels, values) {
+  const canvas = $(canvasId);
+  if (!canvas || !values.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth || 600, H = 130;
+  canvas.width  = W * dpr; canvas.height = H * dpr;
+  canvas.style.width  = W + 'px'; canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const pad = {t:10,r:10,b:28,l:40};
+  const max = Math.max(...values) || 1;
+  const n   = values.length;
+  const xStep = (W - pad.l - pad.r) / Math.max(n - 1, 1);
+  const yScale = (H - pad.t - pad.b) / max;
+
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.strokeStyle = '#2e3a55'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const y = pad.t + (H - pad.t - pad.b) * i / 3;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.fillStyle = '#5a6a8a'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(max * (3 - i) / 3), pad.l - 4, y + 3);
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(pad.l, H - pad.b);
+  values.forEach((v, i) => {
+    const x = pad.l + i * xStep;
+    const y = H - pad.b - v * yScale;
+    i === 0 ? ctx.lineTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(pad.l + (n - 1) * xStep, H - pad.b);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(79,142,247,0.15)';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#4f8ef7'; ctx.lineWidth = 2;
+  values.forEach((v, i) => {
+    const x = pad.l + i * xStep;
+    const y = H - pad.b - v * yScale;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  const step = Math.ceil(n / 6);
+  ctx.fillStyle = '#5a6a8a'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+  labels.forEach((lb, i) => {
+    if (i % step === 0 || i === n - 1) {
+      const x = pad.l + i * xStep;
+      ctx.fillText(lb.slice(-5), x, H - pad.b + 12);
+    }
+  });
+}
+
+// ── History ──────────────────────────────────────────────
+async function loadHistory() {
+  const search = $('h-search').value.slice(0, 200);
+  const method = $('h-method').value;
+  const status = $('h-status').value;
+  const since  = $('h-since').value;
+  const until  = $('h-until').value;
+
+  let qs = `?limit=${PAGE_SIZE}&offset=${histOffset}`;
+  if (activeDomain) qs += `&domain=${encodeURIComponent(activeDomain)}`;
+  if (search) qs += `&search=${encodeURIComponent(search)}`;
+  if (method) qs += `&method=${method}`;
+  if (status) qs += `&status=${status}`;
+  if (since)  qs += `&since=${since}`;
+  if (until)  qs += `&until=${until}`;
+
+  const d = await api('/history' + qs);
+  histTotal = d.total || 0;
+
+  const tbody = $('history-body');
+  if (!d.rows || !d.rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty">No results.</div></td></tr>`;
+  } else {
+    tbody.innerHTML = d.rows.map(r => `
+      <tr onclick="openRequest(${r.id})">
+        <td style="color:var(--dim);font-size:11px">${r.id}</td>
+        <td class="ts">${fmtTs(r.timestamp)}</td>
+        <td><span class="method" style="color:${r.method==='GET'?'#4f8ef7':r.method==='POST'?'#3ecf8e':'#f7c45f'}">${r.method}</span></td>
+        <td>${statusBadge(r.status_code)}</td>
+        <td class="domain">${r.domain}</td>
+        <td>
+          <div class="url-cell">
+            <span class="url" title="${r.url}">${r.url}</span>
+            <!-- #3 — Copy URL button per row; stopPropagation prevents row-click opening drawer -->
+            <button class="copy-url" title="Copy URL"
+              onclick="event.stopPropagation(); copyUrl('${r.url.replace(/'/g,"\\'")}')">📋</button>
+          </div>
+        </td>
+        <td style="white-space:nowrap;font-size:11px">${fmtSize(r.size_bytes)}${r.res_body_is_binary?'<span class="bin"> bin</span>':''}</td>
+      </tr>`).join('');
+  }
+
+  $('pager-info').textContent = `${histOffset+1}–${Math.min(histOffset+PAGE_SIZE, histTotal)} of ${histTotal.toLocaleString()}`;
+  $('btn-prev').disabled = histOffset === 0;
+  $('btn-next').disabled = histOffset + PAGE_SIZE >= histTotal;
+  applyResizers();
+}
+
+function histPage(dir) {
+  histOffset = Math.max(0, histOffset + dir * PAGE_SIZE);
+  loadHistory();
+}
+
+function clearHistoryFilters() {
+  ['h-search','h-since','h-until'].forEach(id => $(id).value = '');
+  ['h-method','h-status'].forEach(id => $(id).selectedIndex = 0);
+  activeDomain = null;
+  histOffset = 0;
+  loadHistory();
+}
+
+function filterByDomain(domain, el) {
+  activeDomain = domain;
+  histOffset   = 0;
+  showPage('history', $('nav-history'));
+}
+
+// ── #3 — Copy URL helpers ─────────────────────────────────
+function copyUrl(url) {
+  navigator.clipboard.writeText(url).then(() => showToast('URL copied!'));
+}
+
+function copyDrawerUrl() {
+  if (_drawerUrl) copyUrl(_drawerUrl);
+}
+
+// ── Request Detail ────────────────────────────────────────
+async function openRequest(id) {
+  const r = await api('/request/' + id);
+  if (r.error) return;
+
+  _drawerUrl = r.url;
+  _drawerId  = id;
+
+  // Reset replay panel
+  const rp = $('replay-result');
+  if (rp) { rp.classList.remove('visible'); rp.innerHTML = ''; }
+  $('btn-replay').disabled = false;
+  $('btn-replay').textContent = '↩ Replay';
+
+  const fmt = o => JSON.stringify(o, null, 2);
+  const stcCol = r.status_code < 300 ? 'var(--green)' : r.status_code < 400 ? 'var(--yellow)' : 'var(--red)';
+
+  $('drawer-title').textContent = `#${r.id} — ${r.method} ${r.url.slice(0,55)}`;
+  $('drawer-body').innerHTML = `
+    <div class="meta-row"><span class="k">URL</span><span class="v" style="word-break:break-all">${r.url}</span></div>
+    <div class="meta-row"><span class="k">Time</span><span class="v">${fmtTs(r.timestamp)}</span></div>
+    <div class="meta-row"><span class="k">Domain</span><span class="v">${r.domain}</span></div>
+    <div class="meta-row"><span class="k">Method</span><span class="v">${r.method}</span></div>
+    <div class="meta-row"><span class="k">Status</span><span class="v" style="color:${stcCol}">${r.status_code}</span></div>
+    <div class="meta-row"><span class="k">Content-Type</span><span class="v">${r.content_type||'—'}</span></div>
+    <div class="meta-row"><span class="k">Size</span><span class="v">${fmtSize(r.size_bytes)}</span></div>
+
+    <div class="section-row">
+      <span class="section-label">Request Headers</span>
+      <button class="btn-copy-section" onclick="copySection('req-headers-block')">📋 Copy</button>
+    </div>
+    <div class="kv-block" id="req-headers-block">${fmt(r.req_headers)}</div>
+
+    <div class="section-row">
+      <span class="section-label">Cookies Sent</span>
+      <button class="btn-copy-section" onclick="copySection('req-cookies-block')">📋 Copy</button>
+    </div>
+    <div class="kv-block" id="req-cookies-block">${fmt(r.req_cookies)}</div>
+
+    <div class="section-row">
+      <span class="section-label">Request Body</span>
+      <button class="btn-copy-section" onclick="copySection('req-body-block')">📋 Copy</button>
+    </div>
+    <div class="kv-block" id="req-body-block">${r.req_body_is_binary ? '(binary)' : (r.req_body || '(empty)')}</div>
+
+    <div class="section-row">
+      <span class="section-label">Response Headers</span>
+      <button class="btn-copy-section" onclick="copySection('res-headers-block')">📋 Copy</button>
+    </div>
+    <div class="kv-block" id="res-headers-block">${fmt(r.res_headers)}</div>
+
+    <div class="section-row">
+      <span class="section-label">Cookies Set</span>
+      <button class="btn-copy-section" onclick="copySection('res-cookies-block')">📋 Copy</button>
+    </div>
+    <div class="kv-block" id="res-cookies-block">${fmt(r.res_cookies)}</div>
+
+    <div class="section-row">
+      <span class="section-label">Response Body</span>
+      <button class="btn-copy-section" onclick="copySection('res-body-block')">📋 Copy</button>
+    </div>
+    <div class="kv-block" id="res-body-block">${r.res_body_is_binary ? '(binary — not stored)' : (r.res_body ? r.res_body.slice(0,4000) + (r.res_body.length>4000?'\n…':'') : '(not saved)')}</div>
+
+    <!-- #4/#5 — replay result panel injected here -->
+    <div id="replay-result"></div>
+  `;
+  $('drawer').classList.add('open');
+}
+
+function closeDrawer() {
+  $('drawer').classList.remove('open');
+  _drawerUrl = '';
+  _drawerId  = null;
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+// ── #4 — Replay: send request and show live result + diff (#5) ───
+async function replayRequest() {
+  if (!_drawerId) return;
+  const btn = $('btn-replay');
+  btn.disabled = true;
+  btn.textContent = '⏳ Replaying…';
+
+  let data;
+  try {
+    data = await api('/replay/' + _drawerId, 'POST');
+  } catch(e) {
+    data = { error: String(e) };
+  }
+
+  btn.textContent = '↩ Replay';
+  btn.disabled = false;
+
+  const rp = $('replay-result');
+  if (!rp) return;
+  rp.classList.add('visible');
+
+  if (data.error) {
+    rp.innerHTML = `<div class="section-label">Replay Error</div>
+      <div class="kv-block" style="color:var(--red)">${data.error}</div>`;
+    return;
+  }
+
+  // Redirect chain
+  const chainHtml = data.redirect_chain && data.redirect_chain.length
+    ? `<div class="redirect-chain">↪ ${data.redirect_chain.join(' → ')}</div>`
+    : '';
+
+  // Status comparison
+  const sc = data.diff.status_changed;
+  const statusHtml = sc
+    ? `<span style="color:var(--red)">⚠ ${data.stored.status} → ${data.live.status}</span>`
+    : `<span style="color:var(--green)">✓ ${data.live.status}</span>`;
+
+  // Size delta
+  const delta = data.diff.size_delta;
+  const deltaStr = delta === 0 ? '±0 B'
+    : delta > 0  ? `+${fmtSize(delta)}`
+    : `-${fmtSize(Math.abs(delta))}`;
+  const deltaCol = delta === 0 ? 'var(--green)' : 'var(--yellow)';
+
+  // Word diff (#5)
+  const diffHtml = (data.diff.body_diff || []).map(span => {
+    if (span.type === 'ins') return `<span class="diff-ins">${escHtml(span.text)} </span>`;
+    if (span.type === 'del') return `<span class="diff-del">${escHtml(span.text)} </span>`;
+    // Show only first/last few words of equal spans to avoid wall of green
+    const words = span.text.split(' ');
+    const preview = words.length > 8
+      ? words.slice(0,3).join(' ') + ' … ' + words.slice(-3).join(' ')
+      : span.text;
+    return `<span class="diff-eq">${escHtml(preview)} </span>`;
+  }).join('');
+
+  rp.innerHTML = `
+    <div class="section-label">↩ Replay Result</div>
+    ${chainHtml}
+    <div class="replay-meta">
+      <span><span class="rk">Status </span><span class="rv">${statusHtml}</span></span>
+      <span><span class="rk">Size Δ </span><span class="rv" style="color:${deltaCol}">${deltaStr}</span></span>
+      <span><span class="rk">Live size </span><span class="rv">${fmtSize(data.live.size)}</span></span>
+    </div>
+    <div class="section-label">Body Diff (stored → live, first 500 words)</div>
+    <div class="diff-block">${diffHtml || '<span style="color:var(--dim)">(no textual differences)</span>'}</div>
+    <div class="section-label">Live Response Headers</div>
+    <div class="kv-block">${JSON.stringify(data.live.headers, null, 2)}</div>
+  `;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Cookies ──────────────────────────────────────────────
+async function loadCookies() {
+  const d = await api('/cookies');
+  allCookies = d.cookies || [];
+  renderCookies(allCookies);
+}
+
+function renderCookies(cookies) {
+  $('ck-count').textContent = `${cookies.length} cookies`;
+  if (!cookies.length) {
+    $('cookies-body').innerHTML = `<div class="empty">No cookies found.</div>`; return;
+  }
+  let html = '';
+  let cur = null;
+  for (const ck of cookies) {
+    if (ck.domain !== cur) {
+      cur = ck.domain;
+      html += `<div class="ck-domain">${ck.domain}</div>`;
+    }
+    const flags = [];
+    if (ck.secure)    flags.push('<span style="color:var(--green)">Secure</span>');
+    if (ck.http_only) flags.push('<span style="color:var(--yellow)">HttpOnly</span>');
+    const val = (ck.value||'').length > 80 ? ck.value.slice(0,80)+'…' : (ck.value||'');
+    html += `<div class="tbl" style="display:table;width:100%">
+      <div style="display:table-row;border-bottom:1px solid var(--border)">
+        <div style="display:table-cell;padding:7px 12px;color:var(--text);font-size:12px;font-family:var(--mono);width:200px">${ck.name}</div>
+        <div style="display:table-cell;padding:7px 4px;color:var(--text2);font-size:12px;font-family:var(--mono);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${val}</div>
+        <div style="display:table-cell;padding:7px 12px;white-space:nowrap;font-size:11px">${flags.join(' ')}</div>
+        <div style="display:table-cell;padding:7px 12px;color:var(--dim);font-size:11px;white-space:nowrap">${fmtTs(ck.updated_at)}</div>
+      </div>
+    </div>`;
+  }
+  $('cookies-body').innerHTML = html;
+}
+
+function filterCookies() {
+  const term = $('ck-search').value.toLowerCase();
+  if (!term) { renderCookies(allCookies); return; }
+  renderCookies(allCookies.filter(c =>
+    (c.name||'').toLowerCase().includes(term) ||
+    (c.value||'').toLowerCase().includes(term) ||
+    (c.domain||'').toLowerCase().includes(term)
+  ));
+}
+
+// ── Domain list in sidebar ────────────────────────────────
+async function loadSidebarDomains() {
+  const domains = await api('/domains');
+  const dl = $('domain-list');
+  if (!domains.length) { dl.innerHTML = `<div class="empty" style="padding:12px 16px;font-size:12px">No data yet</div>`; return; }
+  dl.innerHTML = domains.map(d =>
+    `<a href="#" onclick="filterByDomain('${d}')">${d}</a>`
+  ).join('');
+}
+
+// ── Prune DB ─────────────────────────────────────────────
+function prunePrompt() {
+  const days = prompt('Delete history older than how many days? (leave blank to keep last N rows)');
+  if (days === null) return;
+  if (days.trim() !== '') {
+    const n = parseInt(days, 10);
+    if (isNaN(n) || n < 1) { alert('Invalid number of days.'); return; }
+    fetch(`/api/prune?older_than=${n}`, {method:'POST', headers:{'X-Requested-With':'XHR'}})
+      .then(r=>r.json()).then(d=>{
+        alert(`Pruned: removed ${d.removed} rows. ${d.remaining} remaining.`);
+        loadOverview();
+      });
+  } else {
+    const keep = prompt('Keep how many most-recent rows?');
+    if (!keep) return;
+    const n = parseInt(keep, 10);
+    if (isNaN(n) || n < 1) { alert('Invalid number.'); return; }
+    fetch(`/api/prune?keep_last=${n}`, {method:'POST', headers:{'X-Requested-With':'XHR'}})
+      .then(r=>r.json()).then(d=>{
+        alert(`Pruned: removed ${d.removed} rows. ${d.remaining} remaining.`);
+        loadOverview();
+      });
+  }
+}
+
+// ── WebSockets tab ──────────────────────────────────────
+let wsOffset = 0;
+const WS_PAGE_SIZE = 100;
+let wsTotal = 0;
+let wsActiveDomain = null;
+
+async function loadWsDomains() {
+  const rows = await api('/ws_domains');
+  const tbody = $('ws-domains-body');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty">No WebSocket traffic captured yet.</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr onclick="wsFilterDomain('${r.domain}')" style="cursor:pointer">
+      <td class="domain">${r.domain}</td>
+      <td>${r.connections}</td>
+      <td>${r.total_frames.toLocaleString()}</td>
+      <td class="ws-dir-client">${(r.client_frames||0).toLocaleString()}</td>
+      <td class="ws-dir-server">${(r.server_frames||0).toLocaleString()}</td>
+      <td>${fmtSize(r.total_bytes)}</td>
+      <td class="ts">${fmtTs(r.last_seen)}</td>
+    </tr>`).join('');
+}
+
+async function loadWsMessages() {
+  const domain    = $('ws-domain-filter').value.trim() || wsActiveDomain;
+  const direction = $('ws-direction').value;
+  const opcode    = $('ws-opcode').value;
+  const since     = $('ws-since').value;
+  const until     = $('ws-until').value;
+
+  let qs = `?limit=${WS_PAGE_SIZE}&offset=${wsOffset}`;
+  if (domain)    qs += `&domain=${encodeURIComponent(domain)}`;
+  if (direction) qs += `&direction=${direction}`;
+  if (opcode)    qs += `&opcode=${opcode}`;
+  if (since)     qs += `&since=${since}`;
+  if (until)     qs += `&until=${until}`;
+
+  const d = await api('/ws_messages' + qs);
+  wsTotal = d.total || 0;
+
+  const tbody = $('ws-messages-body');
+  if (!d.rows || !d.rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty">No frames found.</div></td></tr>`;
+  } else {
+    tbody.innerHTML = d.rows.map(r => {
+      const dirClass = r.direction === 'client' ? 'ws-dir-client' : 'ws-dir-server';
+      const dirIcon  = r.direction === 'client' ? '⬆ client' : '⬇ server';
+      const payload  = r.is_binary ? '<span style="color:var(--dim)">(binary)</span>'
+                     : `<div class="ws-payload">${escHtml(r.payload || '')}</div>`;
+      return `<tr>
+        <td style="color:var(--dim);font-size:11px">${r.id}</td>
+        <td class="ts">${fmtTs(r.timestamp)}</td>
+        <td class="domain" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">${r.domain}</td>
+        <td class="${dirClass}" style="font-size:11px;font-weight:700;white-space:nowrap">${dirIcon}</td>
+        <td style="font-size:11px;font-family:var(--mono);white-space:nowrap">${r.opcode_label}</td>
+        <td style="font-size:11px;white-space:nowrap">${fmtSize(r.size_bytes)}</td>
+        <td>${payload}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  $('ws-pager-info').textContent =
+    `${wsOffset+1}–${Math.min(wsOffset+WS_PAGE_SIZE,wsTotal)} of ${wsTotal.toLocaleString()}`;
+  $('ws-btn-prev').disabled = wsOffset === 0;
+  $('ws-btn-next').disabled = wsOffset + WS_PAGE_SIZE >= wsTotal;
+  applyResizers();
+}
+
+function wsPage(dir) {
+  wsOffset = Math.max(0, wsOffset + dir * WS_PAGE_SIZE);
+  loadWsMessages();
+}
+
+function wsFilterDomain(domain) {
+  wsActiveDomain = domain;
+  $('ws-domain-filter').value = domain;
+  wsOffset = 0;
+  loadWsMessages();
+}
+
+function clearWsFilters() {
+  wsActiveDomain = null;
+  $('ws-domain-filter').value = '';
+  ['ws-since','ws-until'].forEach(id => $(id).value = '');
+  ['ws-direction','ws-opcode'].forEach(id => $(id).selectedIndex = 0);
+  wsOffset = 0;
+  loadWsMessages();
+}
+
+// ── Auto-refresh (overview every 5 s) ────────────────────
+// ── Copy section ──────────────────────────────────
+function copySection(blockId) {
+  const el = document.getElementById(blockId);
+  if (!el) return;
+  navigator.clipboard.writeText(el.innerText).then(() => showToast('Copied!'));
+}
+
+// ── Export dropdown ───────────────────────────────
+function toggleExportMenu(menuId) {
+  document.querySelectorAll('.export-menu').forEach(m => {
+    if (m.id !== menuId) m.classList.remove('open');
+  });
+  document.getElementById(menuId).classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.export-wrap')) {
+    document.querySelectorAll('.export-menu').forEach(m => m.classList.remove('open'));
+  }
+});
+
+function _buildHistoryQs() {
+  const search = $('h-search').value.slice(0, 200);
+  const method = $('h-method').value;
+  const status = $('h-status').value;
+  const since  = $('h-since').value;
+  const until  = $('h-until').value;
+  let qs = '?limit=10000&offset=0';
+  if (activeDomain) qs += `&domain=${encodeURIComponent(activeDomain)}`;
+  if (search) qs += `&search=${encodeURIComponent(search)}`;
+  if (method) qs += `&method=${method}`;
+  if (status) qs += `&status=${status}`;
+  if (since)  qs += `&since=${since}`;
+  if (until)  qs += `&until=${until}`;
+  return qs;
+}
+
+async function exportHistory(fmt) {
+  document.querySelectorAll('.export-menu').forEach(m => m.classList.remove('open'));
+  showToast('Preparing export…');
+  if (fmt === 'csv' || fmt === 'json') {
+    const d = await api('/history' + _buildHistoryQs());
+    const rows = d.rows || [];
+    let content, mime, ext;
+    if (fmt === 'csv') {
+      const cols = ['id','timestamp','domain','method','status_code','url','content_type','size_bytes'];
+      const esc  = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+      content = cols.join(',') + '\n' + rows.map(r => cols.map(c => esc(r[c])).join(',')).join('\n');
+      mime = 'text/csv'; ext = 'csv';
+    } else {
+      content = JSON.stringify(rows, null, 2);
+      mime = 'application/json'; ext = 'json';
+    }
+    _download(content, `history_export.${ext}`, mime);
+  } else if (fmt === 'har') {
+    // Build minimal HAR 1.2
+    const d = await api('/history' + _buildHistoryQs());
+    const entries = (d.rows || []).map(r => ({
+      startedDateTime: r.timestamp || '',
+      time: 0,
+      request: {
+        method: r.method, url: r.url, httpVersion: 'HTTP/1.1',
+        headers: [], cookies: [], queryString: [], postData: null,
+        headersSize: -1, bodySize: -1,
+      },
+      response: {
+        status: r.status_code, statusText: '',
+        httpVersion: 'HTTP/1.1', headers: [], cookies: [],
+        content: { size: r.size_bytes || 0, mimeType: r.content_type || '' },
+        redirectURL: '', headersSize: -1, bodySize: r.size_bytes || -1,
+      },
+      cache: {}, timings: { send: 0, wait: 0, receive: 0 },
+    }));
+    const har = { log: { version: '1.2', creator: { name: 'network-proxy', version: '1.0' }, entries } };
+    _download(JSON.stringify(har, null, 2), 'history_export.har', 'application/json');
+  }
+}
+
+function _buildWsQs() {
+  const domain    = $('ws-domain-filter').value.trim() || wsActiveDomain;
+  const direction = $('ws-direction').value;
+  const opcode    = $('ws-opcode').value;
+  const since     = $('ws-since').value;
+  const until     = $('ws-until').value;
+  let qs = '?limit=10000&offset=0';
+  if (domain)    qs += `&domain=${encodeURIComponent(domain)}`;
+  if (direction) qs += `&direction=${direction}`;
+  if (opcode)    qs += `&opcode=${opcode}`;
+  if (since)     qs += `&since=${since}`;
+  if (until)     qs += `&until=${until}`;
+  return qs;
+}
+
+async function exportWs(fmt) {
+  document.querySelectorAll('.export-menu').forEach(m => m.classList.remove('open'));
+  showToast('Preparing export…');
+  const d = await api('/ws_messages' + _buildWsQs());
+  const rows = d.rows || [];
+  let content, mime, ext;
+  if (fmt === 'csv') {
+    const cols = ['id','timestamp','domain','url','direction','opcode_label','size_bytes','payload'];
+    const esc  = v => `"${String(v ?? '').replace(/"/g,'""')}`;
+    content = cols.join(',') + '\n' + rows.map(r => cols.map(c => esc(r[c])).join(',')).join('\n');
+    mime = 'text/csv'; ext = 'csv';
+  } else {
+    content = JSON.stringify(rows, null, 2);
+    mime = 'application/json'; ext = 'json';
+  }
+  _download(content, `ws_export.${ext}`, mime);
+}
+
+function _download(content, filename, mime) {
+  const bom  = mime === 'text/csv' ? '\uFEFF' : '';
+  const blob = new Blob([bom + content], { type: mime });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  showToast(`Downloaded ${filename}`);
+}
+
+// ── Column resize ─────────────────────────────────────
+function initResizableCols(table) {
+  const ths = table.querySelectorAll('thead th');
+  ths.forEach(th => {
+    if (th.querySelector('.col-resizer')) return;
+
+    // Snapshot the rendered pixel width BEFORE adding the handle,
+    // using getBoundingClientRect for sub-pixel accuracy.
+    th.style.width = th.getBoundingClientRect().width + 'px';
+
+    const handle = document.createElement('div');
+    handle.className = 'col-resizer';
+    th.appendChild(handle);
+
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Capture exact width at the moment the drag starts.
+      const startX = e.clientX;
+      const startW = th.getBoundingClientRect().width;
+
+      // Lock cursor on <body> so it doesn't flicker while moving fast.
+      document.body.classList.add('col-resizing');
+
+      function onMove(ev) {
+        const newW = Math.max(40, startW + (ev.clientX - startX));
+        th.style.width = newW + 'px';
+      }
+
+      function onUp() {
+        document.body.classList.remove('col-resizing');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+      }
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    });
+  });
+}
+
+// Run once on boot and after every table re-render
+function applyResizers() {
+  document.querySelectorAll('.tbl').forEach(t => initResizableCols(t));
+}
+
+// ── Auto-refresh (overview every 5 s) ────────────────────
+setInterval(() => {
+  if (currentPage === 'overview') loadOverview();
+}, 5000);
+
+// ── Boot ─────────────────────────────────────────────────
+(async () => {
+  await loadOverview();
+  applyResizers();
+  loadSidebarDomains();
+})();
+</script>
+</body>
+</html>

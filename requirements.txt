@@ -1,1 +1,6 @@
 mitmproxy>=10.0.0
+
+# Optional — install for extra features:
+# httpx          # faster request replay (viewer.py --replay)
+# rich           # prettier CLI output
+# sqlcipher3     # encrypted SQLite (proxy.db at rest)
